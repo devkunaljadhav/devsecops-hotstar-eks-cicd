@@ -1,105 +1,115 @@
-# DevSecOps Hotstar - CI/CD on AWS EKS
+# DevSecOps Hotstar
 
-![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazon-aws&logoColor=white)
-![Jenkins](https://img.shields.io/badge/Jenkins-D24939?style=for-the-badge&logo=jenkins&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![Terraform](https://img.shields.io/badge/Terraform-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)
-![SonarQube](https://img.shields.io/badge/SonarQube-4E9BCD?style=for-the-badge&logo=sonarqube&logoColor=white)
+[![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazonwebservices&logoColor=white)](https://aws.amazon.com/)
+[![Jenkins](https://img.shields.io/badge/Jenkins-D24939?style=for-the-badge&logo=jenkins&logoColor=white)](https://www.jenkins.io/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Terraform](https://img.shields.io/badge/Terraform-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![SonarQube](https://img.shields.io/badge/SonarQube-4E9BCD?style=for-the-badge&logo=sonarqube&logoColor=white)](https://www.sonarsource.com/products/sonarqube/)
 
-A hands-on DevSecOps project that builds, scans, and deploys a Hotstar-style streaming clone through an automated Jenkins pipeline into Amazon Elastic Kubernetes Service (EKS).
-
-> **Repository scope:** this repository contains the architecture assets and the complete deployment guide. Add the application source, Dockerfile, Terraform configuration, Jenkinsfiles, and Kubernetes manifests to the repository before using the automation as a fully version-controlled infrastructure project.
+> An end-to-end DevSecOps implementation that provisions AWS infrastructure and deploys a Hotstar-style streaming application through a secured CI/CD pipeline.
 
 ---
 
 ## Table of Contents
 
-- [Project Overview](#project-overview)
+- [Overview](#overview)
 - [Architecture](#architecture)
-- [CI/CD and Security Workflow](#cicd-and-security-workflow)
+- [DevSecOps Workflow](#devsecops-workflow)
 - [Technology Stack](#technology-stack)
-- [Repository Structure](#repository-structure)
+- [Repository Content](#repository-content)
 - [Prerequisites](#prerequisites)
-- [AWS Infrastructure Setup](#aws-infrastructure-setup)
-- [Jenkins Configuration](#jenkins-configuration)
-- [Application Pipeline](#application-pipeline)
+- [Infrastructure and Jenkins Setup](#infrastructure-and-jenkins-setup)
+- [CI/CD Pipelines](#cicd-pipelines)
 - [Deployment Verification](#deployment-verification)
 - [Screenshots](#screenshots)
-- [Security Best Practices](#security-best-practices)
+- [Security](#security)
 - [Cost and Cleanup](#cost-and-cleanup)
 - [Troubleshooting](#troubleshooting)
+- [Author](#author)
 
 ---
 
-## Project Overview
+## Overview
 
-The project demonstrates an end-to-end DevSecOps delivery workflow:
+This project demonstrates how application delivery can combine continuous integration, continuous deployment, infrastructure as code, and security validation.
 
-1. A developer pushes application code to GitHub.
-2. Jenkins checks out the source and runs SonarQube analysis.
-3. Jenkins enforces a quality gate and installs Node.js dependencies.
-4. OWASP Dependency-Check scans project dependencies.
-5. Docker builds and publishes the application image.
-6. Docker Scout analyzes the image for vulnerabilities.
-7. Kubernetes deploys the validated image to AWS EKS.
-8. AWS exposes the application through a LoadBalancer service.
+The implementation uses:
 
-The setup separates infrastructure creation from application deployment:
+- Amazon EC2 for the Jenkins automation host
+- Amazon EKS for Kubernetes workloads
+- Jenkins for CI/CD orchestration
+- Terraform for infrastructure provisioning
+- SonarQube for static code analysis
+- OWASP Dependency-Check for dependency scanning
+- Docker and Docker Scout for image security
+- Amazon S3 for Terraform remote state
 
-| Jenkins Job | Responsibility |
-|---|---|
-| **EKS Provision** | Initializes, validates, plans, applies, or destroys Terraform infrastructure |
-| **Hotstar Application** | Tests, scans, builds, publishes, and deploys the application |
+> **Repository scope:** this repository currently contains the architecture assets and deployment guide. Add the application source, Dockerfile, Terraform configuration, Jenkinsfiles, and Kubernetes manifests before running the pipeline as a complete, version-controlled project.
+
+---
 
 ## Architecture
 
-![Project Architecture](Architecture.png)
+![DevSecOps Hotstar Architecture](Architecture.png)
 
 <p align="center">
-  <img src="archi-hotstar.gif" alt="DevSecOps architecture animation" width="800">
+  <img src="archi-hotstar.gif" alt="DevSecOps Hotstar architecture walkthrough" width="800">
 </p>
 
-The architecture uses an Ubuntu EC2 instance as the Jenkins and automation host. Jenkins coordinates Terraform, SonarQube, OWASP Dependency-Check, Docker, Docker Scout, and kubectl. A GitHub repository supplies source code, while AWS EKS runs the deployed application.
+The Jenkins EC2 instance acts as the central automation server. Jenkins retrieves application code from GitHub, performs quality and vulnerability checks, builds and publishes container images, and deploys validated workloads to Amazon EKS.
 
-## CI/CD and Security Workflow
+---
+
+## DevSecOps Workflow
 
 ```text
+Developer
+   |
+   | Push
+   v
 GitHub
-  |
-  v
+   |
+   v
 Jenkins Pipeline
-  |
-  +--> Checkout
-  +--> SonarQube Static Analysis
-  +--> Quality Gate
-  +--> npm Dependency Installation
-  +--> OWASP Dependency-Check
-  +--> Docker Build and Push
-  +--> Docker Scout Image Scan
-  +--> Docker Container Validation
-  +--> Kubernetes Deployment
-            |
-            v
-       AWS EKS Cluster
-            |
-            v
-       LoadBalancer Service
+   |
+   +--> Checkout source code
+   +--> SonarQube static analysis
+   +--> Quality gate
+   +--> Install dependencies
+   +--> OWASP Dependency-Check
+   +--> Build Docker image
+   +--> Push image to registry
+   +--> Docker Scout image scan
+   +--> Deploy Docker container
+   +--> Deploy to Amazon EKS
+              |
+              v
+        Kubernetes Service
+              |
+              v
+      LoadBalancer Public Endpoint
 ```
 
-### Security checks
+### Security controls
 
-- **SonarQube:** static code analysis and quality metrics
-- **OWASP Dependency-Check:** vulnerable third-party dependency detection
-- **Docker Scout:** container image vulnerability and recommendation analysis
-- **Docker and Kubernetes credentials:** stored as Jenkins credentials rather than embedded in pipeline commands
+| Control | Tool | Purpose |
+|---|---|---|
+| Static analysis | SonarQube | Detect code defects and quality issues |
+| Dependency scanning | OWASP Dependency-Check | Identify vulnerable application dependencies |
+| Container scanning | Docker Scout | Report image vulnerabilities and remediation guidance |
+| Secrets management | Jenkins Credentials | Keep tokens and registry credentials outside pipeline code |
+| Cluster access | Kubernetes credentials | Restrict and manage EKS authentication |
+| Infrastructure | Terraform | Reproduce infrastructure consistently |
+
+---
 
 ## Technology Stack
 
-| Area | Technology |
+| Category | Technologies |
 |---|---|
 | Cloud | Amazon Web Services |
-| Compute | EC2, Amazon EKS |
+| Compute | Amazon EC2, Amazon EKS |
 | Infrastructure as Code | Terraform |
 | CI/CD | Jenkins |
 | Source Control | Git and GitHub |
@@ -108,20 +118,22 @@ Jenkins Pipeline
 | Code Quality | SonarQube |
 | Application Security | OWASP Dependency-Check |
 | Container Security | Docker Scout |
-| CLI and Automation | AWS CLI, kubectl |
-| Application Runtime | Node.js / npm |
-| Java Runtime | Eclipse Temurin JDK |
-| Storage | Amazon S3 Terraform backend |
+| Runtime | Node.js / npm |
+| Java | Eclipse Temurin JDK |
+| CLI | AWS CLI, kubectl |
+| Remote State | Amazon S3 |
 
-## Repository Structure
+---
+
+## Repository Content
 
 ```text
 .
-|-- Architecture.png                 # Architecture diagram
-|-- archi-hotstar.gif               # Architecture walkthrough
-|-- DevSecOps-Hotstar.txt           # Original setup and Jenkins pipeline guide
-|-- README.md                       # Project documentation
-|-- secrets.txt                     # Sensitive Kubernetes kubeconfig (do not reuse or commit)
+|-- Architecture.png
+|-- archi-hotstar.gif
+|-- DevSecOps-Hotstar.txt
+|-- README.md
+|-- secrets.txt                   # Sensitive - rotate and remove from Git history
 `-- Screenshoots/
     |-- ec2-instances.png
     |-- s3-bucket.png
@@ -132,13 +144,15 @@ Jenkins Pipeline
     `-- complete-ci/
 ```
 
+---
+
 ## Prerequisites
 
 ### AWS
 
 - An AWS account with permissions for EC2, EKS, IAM, S3, and VPC resources
 - AWS CLI installed and configured
-- An S3 bucket for the Terraform remote state
+- A dedicated S3 bucket for Terraform remote state
 
 ### Local workstation
 
@@ -151,36 +165,43 @@ Jenkins Pipeline
 
 ### Jenkins host
 
-Use an Ubuntu EC2 instance with at least:
+Use an Ubuntu EC2 instance with:
 
-- `t2.large`
-- 30 GB or more storage
-- SSH access
-- Docker access
-- An IAM role limited to the required AWS permissions
+- `t2.large` or a suitable larger instance
+- At least 30 GB of storage
+- Restricted SSH and application security group rules
+- A scoped IAM role following least-privilege principles
 
-> Avoid broad administrative roles in production. Use IAM roles and least-privilege policies for Jenkins.
+---
 
-## AWS Infrastructure Setup
+## Infrastructure and Jenkins Setup
 
-### 1. Launch the Jenkins EC2 instance
+The complete, redacted installation and configuration procedure is available in [DevSecOps-Hotstar.txt](DevSecOps-Hotstar.txt).
 
-Launch an Ubuntu EC2 instance, attach an instance profile, open only the required security group ports, and connect through SSH.
+### 1. Launch the EC2 automation host
 
-Suggested Jenkins host ports:
+Create an Ubuntu EC2 instance, attach a least-privilege instance role, and open only the required ports:
 
 | Port | Purpose |
 |---:|---|
-| 22 | SSH |
+| 22 | SSH administration |
 | 8080 | Jenkins |
 | 9000 | SonarQube |
-| 3000 | Hotstar application container |
+| 3000 | Local application validation |
 
-### 2. Install Jenkins, Java, Docker, Terraform, kubectl, and AWS CLI
+### 2. Install the required tools
 
-The commands and installation sequence are documented in [DevSecOps-Hotstar.txt](DevSecOps-Hotstar.txt).
+Install:
 
-After installation:
+- Eclipse Temurin JDK
+- Jenkins
+- Docker
+- SonarQube
+- AWS CLI
+- kubectl
+- Terraform
+
+Verify each installation before continuing:
 
 ```bash
 java --version
@@ -191,124 +212,123 @@ kubectl version --client
 aws --version
 ```
 
-Restart and grant Docker access to the Jenkins service as required:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart docker.service
-sudo chmod 666 /var/run/docker.sock
-```
-
-Do not use `chmod 666` on a shared or production host. Prefer Docker group membership and appropriate service-account permissions.
-
 ### 3. Start SonarQube
 
 ```bash
 docker run -d --name sonar -p 9000:9000 sonarqube:lts-community
 ```
 
-Open `http://<EC2-PUBLIC-IP>:9000` and change the default administrator credentials.
+Open `http://<EC2-PUBLIC-IP>:9000`, change the default credentials, and create an administrator token for Jenkins.
 
-## Jenkins Configuration
+### 4. Configure Jenkins
 
-### Install Jenkins plugins
-
-Install and configure:
+Install the following plugins:
 
 - Eclipse Temurin Installer
 - SonarQube Scanner
-- NodeJS
+- Node.js
 - OWASP Dependency-Check
 - Docker, Docker Commons, Docker Pipeline, and Docker API
 - Kubernetes Credentials Provider
 - Kubernetes CLI
 
-### Configure Jenkins tools
+Configure named tools for JDK, Node.js, SonarQube Scanner, OWASP Dependency-Check, Docker, and Terraform.
 
-Create named tool installations for:
+Create Jenkins credentials using these IDs:
 
-- JDK
-- Node.js
-- SonarQube Scanner
-- OWASP Dependency-Check
-- Docker
-- Terraform
-
-Tools should be reachable by Jenkins and all configured build agents.
-
-### Add Jenkins credentials
-
-Create the following credential IDs without placing secrets in pipeline source code:
-
-| ID | Type | Purpose |
+| Credential ID | Type | Purpose |
 |---|---|---|
 | `sonar-token` | Secret text | SonarQube authentication |
-| `docker` | Username and password | Docker registry authentication |
+| `docker` | Username and password | Container registry authentication |
 | `k8s` | Secret file | EKS kubeconfig |
 
-Configure SonarQube in **Manage Jenkins > System** and register a webhook from SonarQube to Jenkins.
+Never store credentials in Jenkinsfiles or application source files.
 
-## Application Pipeline
+---
 
-Create a parameterized Jenkins pipeline named `EKSJOB` for infrastructure with an `action` parameter:
+## CI/CD Pipelines
+
+### Infrastructure pipeline
+
+Create a parameterized pipeline named `EKSJOB` with an `action` parameter:
 
 ```text
 apply
 destroy
 ```
 
-The infrastructure stages should:
+The pipeline stages are:
 
-1. Check out the Terraform repository.
-2. Verify the Terraform CLI.
-3. Run `terraform init`.
-4. Run `terraform validate`.
-5. Run `terraform plan`.
-6. Run `terraform apply` or `terraform destroy`.
+1. Checkout Terraform source
+2. Verify the Terraform CLI
+3. Initialize the backend
+4. Validate configuration
+5. Create an execution plan
+6. Apply or destroy infrastructure
 
-Create a second pipeline for application delivery. It should run these stages:
+Before running the pipeline, update the S3 backend and cluster variables in the Terraform configuration.
+
+### Application pipeline
+
+Create a pipeline named `HOTSTAR` with these stages:
 
 ```text
 Checkout
 SonarQube Analysis
 Quality Gate
-npm Install
+Install Dependencies
 OWASP FS Scan
 Docker Build
 Docker Push
-Docker Scout Image Scan
+Docker Scout Scan
 Docker Container Deployment
 Kubernetes Deployment
 ```
 
-Example Kubernetes deployment commands:
+Deploy Kubernetes resources from the pipeline:
 
 ```bash
 kubectl apply -f K8S/deployment.yml
 kubectl apply -f K8S/service.yml
 ```
 
-The full Jenkins pipeline examples are available in [DevSecOps-Hotstar.txt](DevSecOps-Hotstar.txt).
+Example Jenkins syntax for kubeconfig-based deployment:
+
+```groovy
+withKubeConfig(credentialsId: 'k8s') {
+    sh 'kubectl apply -f K8S/deployment.yml'
+    sh 'kubectl apply -f K8S/service.yml'
+}
+```
+
+---
 
 ## Deployment Verification
 
-After configuring AWS credentials and the kubeconfig:
+Configure the local kubeconfig:
 
 ```bash
 aws eks update-kubeconfig \
-  --name EKS_CLUSTER \
-  --region ap-south-1
+  --name <EKS_CLUSTER_NAME> \
+  --region <AWS_REGION>
+```
 
+Verify the deployment:
+
+```bash
 kubectl get nodes
 kubectl get all
+kubectl get pods
 kubectl get svc -o wide
 ```
 
-Open the external address shown by the LoadBalancer service in a browser:
+Open the external LoadBalancer address printed by `kubectl get svc`:
 
 ```text
 http://<EXTERNAL-LOAD-BALANCER-DNS>
 ```
+
+---
 
 ## Screenshots
 
@@ -338,58 +358,68 @@ http://<EXTERNAL-LOAD-BALANCER-DNS>
 |---|---|
 | ![EC2 instances](Screenshoots/ec2-instances.png) | ![S3 bucket](Screenshoots/s3-bucket.png) |
 
-## Security Best Practices
+---
 
-### Rotate committed secrets
+## Security
 
-The repository currently tracks `secrets.txt`, which contains Kubernetes cluster configuration. Treat it as exposed credential material:
+### Secret and credential hygiene
 
-1. Remove it from Git tracking.
-2. Revoke or rotate cluster credentials and tokens that were committed.
-3. Store the kubeconfig in Jenkins credentials or a secrets manager.
-4. Add `secrets.txt`, kubeconfigs, `.env` files, and private keys to `.gitignore`.
+The repository tracks `secrets.txt`. Treat any committed kubeconfig or token as exposed:
 
-Because Git retains file history, removing a file in a later commit does not remove it from existing history. Purge exposed credentials and rotate AWS keys when necessary.
+1. Remove `secrets.txt` from Git tracking.
+2. Rotate any credentials, tokens, or AWS keys that may have been committed.
+3. Store the kubeconfig in Jenkins Credentials or a secrets manager.
+4. Add kubeconfigs, `.env` files, private keys, and secret text files to `.gitignore`.
 
-### Use least privilege
+Removing a file in a later commit does not remove it from Git history. Purge the secret and rotate credentials if sensitive values were exposed.
 
-- Use a scoped Jenkins IAM role.
-- Use Kubernetes RBAC.
-- Scan every image before deployment.
-- Pin image tags or digests rather than deploying `latest` in production.
-- Protect Jenkins credentials and restrict pipeline configuration permissions.
-- Add Trivy as an additional filesystem, container, and Kubernetes IaC scanner if required.
+### Production hardening
+
+- Use scoped IAM roles instead of administrator access.
+- Enable Kubernetes RBAC and namespace separation.
+- Pin application image tags or digests.
+- Fail the pipeline on severe dependency or image findings.
+- Restrict Jenkins credentials and build permissions.
+- Enable AWS audit logging and regular key rotation.
+- Use Trivy for additional filesystem, container, Kubernetes, and IaC scanning.
+- Avoid broad Docker socket permissions on shared or production hosts.
+
+---
 
 ## Cost and Cleanup
 
-EKS, EC2, Elastic Load Balancers, NAT gateways, and other AWS resources can incur continuous costs.
+EKS, EC2, Elastic Load Balancers, NAT gateways, and supporting resources can incur ongoing AWS charges.
 
-Run the infrastructure Jenkins job with the `destroy` action, or destroy the Terraform configuration directly:
+Destroy infrastructure using the Jenkins `destroy` action or run Terraform directly:
 
 ```bash
 cd EKS_TERRAFORM
 terraform destroy --auto-approve
 ```
 
-Also remove:
+After destruction, review AWS for:
 
-- Docker and container resources
+- Stopped or orphaned EC2 instances
+- Remaining load balancers
+- NAT gateways
+- Unused security groups and volumes
+- Container registry images
+- Terraform state and state-lock resources
 - Jenkins jobs and credentials
-- S3 Terraform state resources
-- ECR or Docker Hub images
-- LoadBalancer and unused VPC resources
+
+---
 
 ## Troubleshooting
 
 ### Jenkins cannot access Docker
 
 ```bash
-sudo systemctl restart docker.service
 sudo usermod -aG docker jenkins
+sudo systemctl restart docker.service
 sudo systemctl restart jenkins
 ```
 
-Then confirm that Jenkins can run Docker:
+Verify Docker from Jenkins:
 
 ```bash
 docker run --rm hello-world
@@ -397,12 +427,12 @@ docker run --rm hello-world
 
 ### SonarQube quality gate fails or times out
 
-- Verify SonarQube is reachable from Jenkins.
-- Confirm the SonarQube webhook URL.
-- Confirm the `sonar-token` credential.
-- Review project metrics in the SonarQube dashboard.
+- Confirm SonarQube is reachable from Jenkins.
+- Verify the SonarQube webhook URL.
+- Confirm the `sonar-token` credential is valid.
+- Review metrics in the SonarQube project dashboard.
 
-### Kubernetes deployment is rejected
+### Kubernetes deployment fails
 
 ```bash
 kubectl get pods
@@ -411,19 +441,30 @@ kubectl logs <POD-NAME>
 kubectl get events --sort-by=.metadata.creationTimestamp
 ```
 
-Verify the kubeconfig, AWS identity, EKS cluster name, region, namespace, and RBAC permissions.
+Check the kubeconfig, AWS identity, cluster name, region, namespace, and RBAC permissions.
 
 ### LoadBalancer has no external address
 
-Confirm that AWS can provision the service and that subnet and security group settings allow internet-facing traffic:
-
 ```bash
-kubectl describe svc <SERVICE-NAME>
+kubectl describe service <SERVICE-NAME>
 kubectl get endpoints
 ```
+
+Verify subnet configuration, AWS service quotas, IAM permissions, and internet-facing traffic rules.
+
+---
+
+## Author
+
+**Kunal Jadhav**
+
+- **Portfolio:** [kunalcloud.shop](https://kunalcloud.shop/)
+- **GitHub:** [@devkunaljadhav](https://github.com/devkunaljadhav)
+- **LinkedIn:** [Kunal Jadhav](https://www.linkedin.com/in/devkunaljadhav)
+- **Email:** [kunaljadhav1625@gmail.com](mailto:kunaljadhav1625@gmail.com)
 
 ---
 
 ## License
 
-Add a license that matches how the project and application assets are intended to be reused. At present, no license file is included in the repository.
+No license file is currently included. Add a license that defines how the project source and documentation may be used before publishing or distributing the project.

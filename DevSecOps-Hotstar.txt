@@ -1,504 +1,665 @@
-Deploying HOTSTAR using CI / CD DevSecOps
-========================================
+# DevSecOps Hotstar
 
+## End-to-End AWS EKS CI/CD Setup Guide
 
-Step 1: Setting up AWS EC2 Instance
-----------------------------------
-Creating an EC2 instance t2.large with Ubuntu 24 AMI, t2.large, and 30 GB storage
-Assigning an IAM role with Admin access
+This guide configures an Ubuntu EC2 instance as a Jenkins automation host, creates an Amazon EKS cluster with Terraform, and deploys a Hotstar-style application through an integrated DevSecOps pipeline.
 
-Step 2: Installation of Required Tools on the Instance
-------------------------------------------------------
+---
 
-Docker
-Jenkins
-Java
-SonarQube container
-AWS CLI
-Kubectl
-Terraform
+## 1. Architecture Overview
 
-Step 3: Jenkins Job Configuration
------------------------------------
-Creating Jenkins jobs for:
-========================
-Job 1: Creating an EKS cluster
-Job 2: Deploying the Hotstar clone application
+The environment includes:
 
-Configuring the Jenkins job stages:
------------------------------------
-Sending files to SonarQube for static code analysis
-Running npm install
-Implementing OWASP for security checks
-Installing and running Docker Scout for container security
-Scanning files and Docker images with Docker Scout
-Building and pushing Docker images
-Deploying the application to the EKS cluster
+- GitHub for source control
+- Jenkins for build and deployment orchestration
+- SonarQube for static code analysis
+- OWASP Dependency-Check for dependency security
+- Docker and Docker Scout for image security
+- Terraform for AWS infrastructure
+- Amazon EKS for Kubernetes workloads
+- Amazon S3 for Terraform remote state
 
-==================================
-Process
-=================================
+The infrastructure and application pipelines should be maintained separately:
 
-Script1 for Java,Jenkins,Docker
+| Jenkins Job | Responsibility |
+|---|---|
+| EKS Provision | Initialize, validate, plan, apply, or destroy Terraform infrastructure |
+| HOTSTAR | Build, scan, publish, and deploy the application |
 
-vi script1.sh
+---
 
-#!/bin/bash
+## 2. Create the Jenkins EC2 Instance
+
+1. Launch an Ubuntu EC2 instance.
+2. Use `t2.large` or a suitable larger instance.
+3. Allocate at least 30 GB of storage.
+4. Attach an IAM role with only the permissions required for EC2, EKS, IAM, S3, and related resources.
+5. Connect to the instance through SSH.
+
+Recommended inbound rules:
+
+| Port | Source | Purpose |
+|---:|---|---|
+| 22 | Administrator IP | SSH |
+| 8080 | Administrator/VPN CIDR | Jenkins |
+| 9000 | Administrator/VPN CIDR | SonarQube |
+| 3000 | Required application/network CIDR | Application container |
+
+Do not expose Jenkins or SonarQube to the public internet with unrestricted security group rules.
+
+---
+
+## 3. Install Jenkins and Java
+
+Run the following commands on the EC2 instance:
+
+```bash
 sudo apt update -y
-wget -O - https://packages.adoptium.net/artifactory/api/gpg/key/public | tee /etc/apt/keyrings/adoptium.asc
-echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list
+sudo apt install -y wget curl gnupg ca-certificates
+
+wget -O - https://packages.adoptium.net/artifactory/api/gpg/key \
+  | sudo tee /etc/apt/keyrings/adoptium.asc
+
+echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print $2}' /etc/os-release) main" \
+  | sudo tee /etc/apt/sources.list.d/adoptium.list
+
 sudo apt update -y
-sudo apt install temurin-17-jdk -y
-/usr/bin/java --version
-curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/ | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install jenkins -y
-sudo systemctl start jenkins
+sudo apt install -y temurin-17-jdk
 
-#install docker
-# Add Docker's official GPG key:
-sudo apt-get update
-sudo apt-get install ca-certificates curl gnupg -y
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-# Add the repository to Apt sources:
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
-sudo usermod -aG docker ubuntu
-newgrp docker
+curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key \
+  | sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
 
-===========================================
+echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" \
+  | sudo tee /etc/apt/sources.list.d/jenkins.list
 
-http://ip:8080
+sudo apt update -y
+sudo apt install -y jenkins
+sudo systemctl enable --now jenkins
+```
 
-Script 2 for Terraform,kubectl,Aws cli
+Verify the services:
 
-vi script2.sh
+```bash
+java --version
+jenkins --version
+sudo systemctl status jenkins --no-pager
+```
 
-#!/bin/bash
-#install terraform
-sudo apt install wget -y
-wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-sudo apt update && sudo apt install terraform
+Open:
 
-#install Kubectl on Jenkins
+```text
+http://<EC2-PUBLIC-IP>:8080
+```
+
+Retrieve the initial administrator password:
+
+```bash
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+Complete the Jenkins setup wizard and install the recommended plugins.
+
+---
+
+## 4. Install Docker
+
+```bash
 sudo apt update
-sudo apt install curl -y
-curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-kubectl version --client
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
 
-#install Aws cli
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-sudo apt-get install unzip -y
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+
+sudo usermod -aG docker ubuntu
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+```
+
+Reconnect to the EC2 instance before testing Docker from the Ubuntu account:
+
+```bash
+docker run --rm hello-world
+```
+
+Avoid `chmod 777 /var/run/docker.sock` on shared or production hosts. Docker socket access provides effectively unrestricted access to the host.
+
+---
+
+## 5. Install Terraform
+
+```bash
+sudo apt install -y wget gnupg
+
+wget -O- https://apt.releases.hashicorp.com/gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt update
+sudo apt install -y terraform
+terraform --version
+```
+
+Configure Terraform as a Jenkins tool:
+
+1. Open **Manage Jenkins**.
+2. Open **Tools**.
+3. Add **Terraform**.
+4. Use name `terraform`.
+5. Disable automatic installation.
+6. Set the installation directory to `/usr/bin/`.
+
+Confirm the executable location:
+
+```bash
+which terraform
+```
+
+---
+
+## 6. Install AWS CLI
+
+```bash
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+sudo apt install -y unzip
 unzip awscliv2.zip
 sudo ./aws/install
+aws --version
+```
 
-=======================================================
+Configure credentials through a Jenkins IAM role or temporary AWS credentials. Do not place long-lived access keys in Jenkinsfiles or shell scripts.
 
-Now Run sonarqube container
+---
 
-sudo chmod 777 /var/run/docker.sock
-systemctl daemon-reload
-systemctl restart docker.service
+## 7. Install kubectl
 
-docker run -d --name sonar -p 9000:9000 sonarqube:lts-community
+```bash
+sudo apt update
+sudo apt install -y curl
 
-http://ip:9000
+curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+kubectl version --client
+```
 
-username:admin, password: admin
+Generate the EKS kubeconfig only after the cluster is created:
 
-Step 3: Jenkins Job Configuration
-=================================
+```bash
+aws eks update-kubeconfig \
+  --name <EKS_CLUSTER_NAME> \
+  --region <AWS_REGION>
+```
 
-Job 1: EKS Provision
------------------------
+---
 
-First change the bucketname in the backend.tf ( devsecops-hotstar/EKS_TERRAFORM/backend.tf )
+## 8. Start SonarQube
 
-Install terraform plugin
+Start SonarQube in Docker:
 
-let’s find the path to our Terraform (we will use it in the tools section of Terraform)
+```bash
+docker run -d \
+  --name sonar \
+  --restart unless-stopped \
+  -p 9000:9000 \
+  sonarqube:lts-community
+```
 
-In EC2 instance run the below command
+Open:
 
-which terraform 
+```text
+http://<EC2-PUBLIC-IP>:9000
+```
 
-Now --> Manage Jenkins –> Tools
+Use the initial administrator credentials only for first login, then immediately change the password.
 
-Terraform --> Name: terraform, uncheck install automatically , install directory = /usr/bin/
+---
 
-Now create a new pipeline job for the Eks provision
-------------------------------------------
+## 9. Configure Jenkins Plugins
 
-New Item --> Pipeline --> EKSJOB 
+Install the following plugins through **Manage Jenkins > Plugins**:
 
-This project is parameterized
+- Eclipse Temurin Installer
+- SonarQube Scanner
+- Node.js
+- OWASP Dependency-Check
+- Docker
+- Docker Commons
+- Docker Pipeline
+- Docker API
+- Kubernetes Credentials Provider
+- Kubernetes Client API
+- Kubernetes
+- Kubernetes CLI
+
+---
+
+## 10. Configure Jenkins Tools
+
+Open **Manage Jenkins > Tools** and create named installations:
+
+### JDK
+
+| Name | Source |
+|---|---|
+| `jdk17` | Eclipse Temurin JDK 17 |
+
+### SonarQube Scanner
+
+| Name | Source |
+|---|---|
+| `sonar-scanner` | Latest SonarScanner |
+
+### Node.js
+
+| Name | Source |
+|---|---|
+| `node` | Supported Node.js LTS version |
+
+### OWASP Dependency-Check
+
+| Name | Source |
+|---|---|
+| `DP-Check` | Latest Dependency-Check installer |
+
+### Docker
+
+| Name | Source |
+|---|---|
+| `docker` | Docker client |
+
+---
+
+## 11. Configure SonarQube Credentials
+
+In SonarQube:
+
+1. Open **Administration > Security > Users**.
+2. Create or select a user token.
+3. Give the token a descriptive name.
+4. Copy the token once and store it securely.
+
+In Jenkins:
+
+1. Open **Manage Jenkins > Credentials**.
+2. Add a **Secret text** credential.
+3. Use `sonar-token` as the credential ID.
+4. Paste the SonarQube token as the secret.
+
+Then open **Manage Jenkins > System**:
+
+1. Add a SonarQube server.
+2. Use name `sonar-server`.
+3. Set the SonarQube server URL.
+4. Select credential ID `sonar-token`.
+
+Configure a Jenkins webhook in SonarQube:
+
+```text
+Name: Jenkins
+URL: http://<JENKINS-HOST>:8080/sonarqube-webhook/
+Secret: leave empty unless a secret is configured
+```
+
+---
+
+## 12. Configure Docker Credentials
+
+In Jenkins:
+
+1. Open **Manage Jenkins > Credentials**.
+2. Add a **Username and password** credential.
+3. Use `docker` as the credential ID.
+4. Use a registry access token instead of an account password.
+
+Docker Hub login can be tested locally before creating the pipeline:
+
+```bash
+docker login
+```
+
+---
+
+## 13. Create the EKS Provision Pipeline
+
+Create a Jenkins pipeline job named `EKSJOB`.
+
+Add a parameter:
+
+```text
 Name: action
-choices: 
- apply
- destroy
+Choices:
+  apply
+  destroy
+```
 
-pipeline{
+Example pipeline:
+
+```groovy
+pipeline {
     agent any
+
+    parameters {
+        choice(name: 'action', choices: ['apply', 'destroy'], description: 'Terraform action')
+    }
+
     stages {
-        stage('Checkout from Git'){
-            steps{
-                git branch: 'main', url: 'https://github.com/ReyazShaik/devsecops-hotstar.git'
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/<OWNER>/<INFRASTRUCTURE-REPOSITORY>.git'
             }
         }
-        stage('Terraform version'){
-             steps{
-                 sh 'terraform --version'
-             }
+
+        stage('Terraform Version') {
+            steps {
+                sh 'terraform --version'
+            }
         }
-        stage('Terraform init'){
-             steps{
-                 dir('EKS_TERRAFORM') {
-                      sh 'terraform init'
-                   }
-             }
+
+        stage('Terraform Init') {
+            steps {
+                dir('EKS_TERRAFORM') {
+                    sh 'terraform init'
+                }
+            }
         }
-        stage('Terraform validate'){
-             steps{
-                 dir('EKS_TERRAFORM') {
-                      sh 'terraform validate'
-                   }
-             }
+
+        stage('Terraform Validate') {
+            steps {
+                dir('EKS_TERRAFORM') {
+                    sh 'terraform validate'
+                }
+            }
         }
-        stage('Terraform plan'){
-             steps{
-                 dir('EKS_TERRAFORM') {
-                      sh 'terraform plan'
-                   }
-             }
+
+        stage('Terraform Plan') {
+            steps {
+                dir('EKS_TERRAFORM') {
+                    sh 'terraform plan'
+                }
+            }
         }
-        stage('Terraform apply/destroy'){
-             steps{
-                 dir('EKS_TERRAFORM') {
-                      sh 'terraform ${action} --auto-approve'
-                   }
-             }
+
+        stage('Terraform Apply or Destroy') {
+            steps {
+                dir('EKS_TERRAFORM') {
+                    sh "terraform ${action} --auto-approve"
+                }
+            }
         }
     }
 }
+```
 
+Before running the pipeline:
 
-Create a another pipeline Hotstar job
----------------------------------------
+- Replace the Git repository URL.
+- Replace the S3 backend bucket name.
+- Define AWS region and cluster variables.
+- Review IAM permissions and Terraform resources.
 
-Plugins installation & setup (Java, Sonar, Nodejs, owasp, Docker)
------------------------------------------------------------------
+---
 
-Go to Jenkins dashboard
+## 14. Install Docker Scout
 
-Manage Jenkins –> Plugins –> Available Plugins
+Install Docker Scout on the Jenkins host:
 
-Search for the Below Plugins
+```bash
+curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh \
+  | sh -s -- -b /usr/local/bin
 
-Eclipse Temurin installer
+docker-scout version
+```
 
-Sonarqube Scanner
+Authenticate to Docker Hub:
 
-NodeJs
+```bash
+docker login
+```
 
-Owasp Dependency-Check
+Use Trivy as an additional security scanner when broader filesystem, Kubernetes, and IaC coverage is required.
 
-Docker
+---
 
-Docker Commons
+## 15. Create the HOTSTAR Application Pipeline
 
-Docker Pipeline
+Create a Jenkins pipeline job named `HOTSTAR`.
 
-Docker API
+Example pipeline:
 
-Docker-build-step
-
-Goto Manage Jenkins → Tools → 
-
-JDK installations --> Add JDK --> Name: jdk17, remove install oracle and add Install from adoptium.net and select jdk 17.0.12+7 (install automatically)
-
-SonarQube Scanner installations --> Add SonarQube Scanner --> Name=sonar-scanner, install automatically --> version: sonarscanner 6.1 latest
-
-NodeJS installations --> Add NodeJS --> install automatically --> install from nodejs.org -> version nodejs 16.2.0
-
-Dependency-Check installations --> Name = DP-Check --> install automatically --> Add installer --> select GitHub --> latest
-
-Docker installations --> Name = docker --> install automatically --> Add installer --> select docker.com --> latest
-
-
-
-Configure Sonar Server in Manage Jenkins
-==========================================
-
-Go to your Sonarqube Server. http://ip:9000
-
-Click on Administration → Security → Users → Click on Tokens and Update Token → Give it a name hotstar → and click on Generate Token
-
-squ_bec30b9d455c90b0c0c289d6f17fca11d55832a4
-
-Goto Jenkins Dashboard → Manage Jenkins → Credentials → Add Secret Text.
-Kind = Secret Text
-Scope = Global
-Secret = Paste the sonar key you copied
-ID = sonar-token
-Desc = sonar-token
-
-Adding sonar server details in Jenkins
----------------------------------
-
-Now, go to Dashboard → Manage Jenkins → System --> SonarQube servers
-Name = sonar-server
-Server URL = http://35.154.52.225:9000
-Server authentication token = sonar-token that you created in credentials
-
-In the Sonarqube Dashboard add a quality gate
-------------------------------------------
-
-Administration–> Configuration–>Webhooks --> create 
-Name = Jenkins
-URL = http://35.154.52.225:8080/sonarqube-webhook/
-Secret = empty
-
-Add Docker credentials to the Jenkins to log in and push the image
-----------------------------------------------------------------
-
-Manage Jenkins –> Credentials –> global –> add credential
-
-Kind = Username and password
-Username= trainerreyaz
-password = ****
-ID = docker
-Desc = docker
-
-Lets create a pipeline to create docker image and containers using real application hotstar
-==========================================================================================
-
-Before that install docker scout for security scan.
-
-Docker Scout is a security analysis tool that helps you scan, assess, and remediate vulnerabilities in Docker images. It integrates with Docker Hub and local images to provide insights into software dependencies and security risks.
-
-Use Docker Scout 🐳 if you are a Docker user looking for a fast, easy way to scan images.
-Use Trivy 🔍 if you need comprehensive security scanning beyond just Docker images, including containers, Kubernetes, file systems, and Infrastructure as Code.
-
-
-docker login -u trainerreyaz
-
-curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- -b /usr/local/bin
-
-
- curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh -o install-scout.sh
- sh install-scout.sh
-
-https://docs.docker.com/scout/install/
-
-
-Create a HOTSTAR Pipeline
--------------------------
-
-pipeline{
+```groovy
+pipeline {
     agent any
-    tools{
-        jdk 'jdk23'
-        nodejs 'node23'
+
+    tools {
+        jdk 'jdk17'
+        nodejs 'node'
     }
+
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'
+        IMAGE = '<REGISTRY>/<ACCOUNT>/hotstar'
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
+
     stages {
-        stage('Checkout from Git'){
-            steps{
-                git branch: 'main', url: 'https://github.com/ReyazShaik/devsecops-hotstar.git'
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/<OWNER>/<APPLICATION-REPOSITORY>.git'
             }
         }
-        stage("Sonarqube Analysis "){
-            steps{
+
+        stage('SonarQube Analysis') {
+            steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=hotstar \
-                    -Dsonar.projectKey=hotstar'''
+                    sh '''
+                        $SCANNER_HOME/bin/sonar-scanner \
+                          -Dsonar.projectName=hotstar \
+                          -Dsonar.projectKey=hotstar
+                    '''
                 }
             }
         }
-        stage("Quality Gate"){
-           steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
-                }
+
+        stage('Quality Gate') {
+            steps {
+                waitForQualityGate(
+                    abortPipeline: false,
+                    credentialsId: 'sonar-token'
+                )
             }
         }
+
         stage('Install Dependencies') {
             steps {
-                sh "npm install"
+                sh 'npm install'
             }
         }
-        stage('OWASP FS SCAN') {
+
+        stage('OWASP FS Scan') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheck(
+                    additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',
+                    odcInstallation: 'DP-Check'
+                )
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
-                       sh "docker build -t hotstar ."
-                       sh "docker tag hotstar trainerreyaz/hotstar:latest "
-                       sh "docker push trainerreyaz/hotstar:latest"
-                    }
-                }
-            }
-        }
-        stage('Docker Scout Image') {
+
+        stage('Docker Build and Push') {
             steps {
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
-                       sh 'docker-scout quickview trainerreyaz/hotstar:latest'
-                       sh 'docker-scout cves trainerreyaz/hotstar:latest'
-                       sh 'docker-scout recommendations trainerreyaz/hotstar:latest'
-                   }
-                }
-            }
-        }
-        stage("deploy_docker"){
-            steps{
-                sh "docker run -d --name hotstar -p 3000:3000 trainerreyaz/hotstar:latest"
-            }
-        }
-    }
-}
-
-
-
-aws eks update-kubeconfig --name EKS_CLUSTER --region ap-south-1
-
-cat .kube/config
-
-save that as secret.txt in local machine
-
-kubectl get nodes
-
-Install Kubernetes Plugin
-----------------------
-
-Kubernetes Credentials
-Kubernetes Client API
-Kubernetes
-Kubernetes CLI
-
-goto manage Jenkins –> manage credentials –> Click on Jenkins global –> add credentials
-
-Kind= SEcret File
-choose = secret.txt
-ID: k8s
-desc : k8s
-
-
-Go to HOTSTAR Pipeline And add the code
-
-pipeline{
-    agent any
-    tools{
-        jdk 'jdk23'
-        nodejs 'node23'
-    }
-    environment {
-        SCANNER_HOME=tool 'sonar-scanner'
-    }
-    stages {
-        stage('Checkout from Git'){
-            steps{
-                git branch: 'main', url: 'https://github.com/ReyazShaik/devsecops-hotstar.git'
-            }
-        }
-        stage("Sonarqube Analysis "){
-            steps{
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=hotstar \
-                    -Dsonar.projectKey=hotstar'''
-                }
-            }
-        }
-        stage("Quality Gate"){
-           steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
-                }
-            }
-        }
-        stage('Install Dependencies') {
-            steps {
-                sh "npm install"
-            }
-        }
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
-                       sh "docker build -t hotstar ."
-                       sh "docker tag hotstar trainerreyaz/hotstar:latest "
-                       sh "docker push trainerreyaz/hotstar:latest"
+                    withDockerRegistry(
+                        credentialsId: 'docker',
+                        toolName: 'docker'
+                    ) {
+                        sh "docker build -t ${IMAGE}:${IMAGE_TAG} ."
+                        sh "docker push ${IMAGE}:${IMAGE_TAG}"
                     }
                 }
             }
         }
-        stage('Docker Scout Image') {
+
+        stage('Docker Scout') {
             steps {
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
-                       sh 'docker-scout quickview trainerreyaz/hotstar:latest'
-                       sh 'docker-scout cves trainerreyaz/hotstar:latest'
-                       sh 'docker-scout recommendations trainerreyaz/hotstar:latest'
-                   }
+                script {
+                    sh "docker-scout quickview ${IMAGE}:${IMAGE_TAG}"
+                    sh "docker-scout cves ${IMAGE}:${IMAGE_TAG}"
+                    sh "docker-scout recommendations ${IMAGE}:${IMAGE_TAG}"
                 }
             }
         }
-        stage("deploy_docker"){
-            steps{
-                sh "docker run -d --name hotstar -p 3000:3000 trainerreyaz/hotstar:latest"
+
+        stage('Docker Container Validation') {
+            steps {
+                sh '''
+                    docker rm -f hotstar || true
+                    docker run -d --name hotstar -p 3000:3000 "${IMAGE}:${IMAGE_TAG}"
+                '''
             }
         }
-        stage('Deploying to kubernetes'){
-            steps{
-                script{
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
                     dir('K8S') {
-                        withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'k8s', namespace: '', restrictKubeConfigAccess: false, serverUrl: '') {
-                                sh 'kubectl apply -f deployment.yml'
-                                sh 'kubectl apply -f service.yml'
-                        }   
+                        withKubeConfig(
+                            credentialsId: 'k8s',
+                            namespace: 'default'
+                        ) {
+                            sh 'kubectl apply -f deployment.yml'
+                            sh 'kubectl apply -f service.yml'
+                        }
                     }
                 }
             }
         }
     }
+
+    post {
+        always {
+            sh 'docker rm -f hotstar || true'
+        }
+    }
 }
+```
 
+Update the image repository, Docker registry, Git repository, namespace, and Kubernetes manifest names to match the project.
 
-Once pipeline is successful
+---
 
- kubectl get all
+## 16. Store the EKS Kubeconfig in Jenkins
 
+After creating the cluster:
+
+```bash
+aws eks update-kubeconfig \
+  --name <EKS_CLUSTER_NAME> \
+  --region <AWS_REGION>
+
+cat ~/.kube/config
+```
+
+Create a Jenkins secret file credential:
+
+| Field | Value |
+|---|---|
+| Kind | Secret file |
+| File | Copy of `~/.kube/config` |
+| ID | `k8s` |
+| Description | EKS kubeconfig |
+
+Do not commit the kubeconfig to Git or place it in the repository.
+
+---
+
+## 17. Verify the Deployment
+
+```bash
+kubectl get nodes
+kubectl get pods
+kubectl get deployments
+kubectl get services
+kubectl get all
 kubectl get svc -o wide
+```
 
+Open the `EXTERNAL-IP` or LoadBalancer DNS shown for the Kubernetes service:
 
+```text
+http://<EXTERNAL-LOAD-BALANCER-DNS>
+```
 
+Common troubleshooting commands:
 
+```bash
+kubectl describe pod <POD-NAME>
+kubectl logs <POD-NAME>
+kubectl describe service <SERVICE-NAME>
+kubectl get events --sort-by=.metadata.creationTimestamp
+```
 
+---
 
+## 18. Security and Credential Hygiene
 
+- Rotate any tokens or credentials that may have been committed to Git.
+- Remove `secrets.txt` from Git tracking.
+- Add kubeconfigs, `.env` files, private keys, and secret text files to `.gitignore`.
+- Use Jenkins credentials or a secrets manager.
+- Use a scoped IAM role instead of administrator access.
+- Use Kubernetes RBAC and a dedicated namespace.
+- Pin container versions and digests.
+- Review dependency and container scan findings before promotion.
+- Restrict Jenkins credential access to authorized jobs and users.
+- Remove public SonarQube and Jenkins exposure after setup.
 
+Removing a secret in a new commit does not remove it from Git history. Rotate exposed credentials and purge sensitive history when required.
 
+---
 
+## 19. Cleanup
 
+Run the Jenkins `EKSJOB` with `destroy`, or destroy Terraform locally:
 
+```bash
+cd EKS_TERRAFORM
+terraform destroy --auto-approve
+```
 
+Also review AWS for:
 
+- EC2 instances
+- EKS clusters
+- Elastic Load Balancers
+- NAT gateways
+- Elastic IP addresses
+- Security groups
+- Unused volumes
+- S3 state resources
+- Container registry images
 
+Amazon EKS, EC2, load balancers, and NAT gateways can generate ongoing costs.
 
+---
 
+## Author
+
+**Kunal Jadhav**
+
+- Portfolio: https://kunalcloud.shop/
+- GitHub: https://github.com/devkunaljadhav
+- LinkedIn: https://www.linkedin.com/in/devkunaljadhav
+- Email: kunaljadhav1625@gmail.com
